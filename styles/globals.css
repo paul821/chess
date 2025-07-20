@@ -1,21 +1,163 @@
-/* File: styles/globals.css */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Import Chessboard.js default styles */
-@import 'chessboardjs/dist/chessboard-1.0.0.min.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500&display=swap');
 
-/* Global body styles */
+html,
 body {
-  margin: 0;
   padding: 0;
-  background-color: #000000;
-  color: #FFFFFF;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto,
+    Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
 }
 
-/* Hypothetical Mode overlay indicator */
-.hypothetical-on .board {
-  outline: 2px dashed #ffffff;
+* {
+  box-sizing: border-box;
+}
+
+/* Chess board specific styles */
+.chessboard-container {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Hypothetical mode indicator */
+.hypothetical-indicator {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 4px;
+  z-index: 1000;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+/* Move highlighting */
+.move-highlight {
+  background-color: rgba(255, 255, 0, 0.3) !important;
+}
+
+.last-move {
+  background-color: rgba(255, 255, 0, 0.5) !important;
+}
+
+/* Chess piece animations */
+.chess-piece {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-black text-white px-6 py-3 rounded-md hover:bg-gray-800 transition-colors font-medium;
+}
+
+.btn-secondary {
+  @apply bg-white text-black border border-black px-6 py-3 rounded-md hover:bg-gray-100 transition-colors font-medium;
+}
+
+.btn-sm {
+  @apply px-4 py-2 text-sm;
+}
+
+/* Card styles */
+.card {
+  @apply bg-white border border-gray-200 rounded-lg shadow-sm;
+}
+
+.card-header {
+  @apply px-6 py-4 border-b border-gray-200;
+}
+
+.card-body {
+  @apply p-6;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent;
+}
+
+/* Responsive chess board */
+@media (max-width: 768px) {
+  .chessboard-container {
+    padding: 10px;
+  }
+  
+  .chess-board {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* Loading spinner */
+.spinner {
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #000;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Toast notifications */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #000;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 6px;
+  z-index: 1000;
+  font-weight: 500;
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast.success {
+  background: #10b981;
+}
+
+.toast.error {
+  background: #ef4444;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }

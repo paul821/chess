@@ -1,26 +1,32 @@
+
 {
     "name": "chess-trainer",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "private": true,
     "scripts": {
       "dev": "next dev",
       "build": "next build",
-      "start": "next start"
+      "start": "next start",
+      "lint": "next lint"
     },
     "dependencies": {
-      "next": "latest",
-      "react": "latest",
-      "react-dom": "latest",
-      "tailwindcss": "latest",
-      "firebase": "latest",
-      "chess.js": "latest",
-      "chessboardjs": "latest",
-      "stockfish": "latest",
-      "jszip": "latest",
-      "file-saver": "latest"
+      "next": "14.0.0",
+      "react": "18.2.0",
+      "react-dom": "18.2.0",
+      "firebase": "^10.5.0",
+      "chess.js": "^1.0.0-beta.6",
+      "chessboardjs": "^1.0.0",
+      "stockfish": "^15.0.0",
+      "file-saver": "^2.0.5",
+      "jszip": "^3.10.1",
+      "jspdf": "^2.5.1",
+      "html2canvas": "^1.4.1"
     },
     "devDependencies": {
-      "autoprefixer": "latest",
-      "postcss": "latest"
+      "autoprefixer": "^10.0.1",
+      "eslint": "^8.0.0",
+      "eslint-config-next": "14.0.0",
+      "postcss": "^8.0.0",
+      "tailwindcss": "^3.3.0"
     }
   }
