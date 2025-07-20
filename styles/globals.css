@@ -1,0 +1,21 @@
+/* File: styles/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Chessboard.js default styles */
+@import 'chessboardjs/dist/chessboard-1.0.0.min.css';
+
+/* Global body styles */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #000000;
+  color: #FFFFFF;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Hypothetical Mode overlay indicator */
+.hypothetical-on .board {
+  outline: 2px dashed #ffffff;
+}

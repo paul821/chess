@@ -1,0 +1,26 @@
+{
+    "name": "chess-trainer",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start"
+    },
+    "dependencies": {
+      "next": "latest",
+      "react": "latest",
+      "react-dom": "latest",
+      "tailwindcss": "latest",
+      "firebase": "latest",
+      "chess.js": "latest",
+      "chessboardjs": "latest",
+      "stockfish": "latest",
+      "jszip": "latest",
+      "file-saver": "latest"
+    },
+    "devDependencies": {
+      "autoprefixer": "latest",
+      "postcss": "latest"
+    }
+  }
