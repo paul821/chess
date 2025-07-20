@@ -1,148 +1,350 @@
-import React, { useEffect, useRef, useState } from 'react';
-import Navbar from '../components/Navbar';
-import Chess from 'chess.js';
-import { loadStockfish } from '../lib/stockfish';
-
-// Dynamically import Chessboard.js (client-side only)
-const loadChessboard = async () => {
-  if (typeof window !== 'undefined') {
-    await import('chessboardjs');
-  }
-};
+//pages/practice.js
+import { useState, useEffect, useRef } from 'react';
+import Head from 'next/head';
+import ChessBoard from '../components/ChessBoard';
+import NotationPanel from '../components/NotationPanel';
+import HypotheticalToggle from '../components/HypotheticalToggle';
+import { getStockfishEngine, setEngineSkill } from '../lib/stockfish';
+import { useAuth } from './_app';
+import { saveGame } from '../lib/firebase';
+import { detectMotifs } from '../lib/motifs';
 
 export default function Practice() {
-  const boardRef = useRef(null);
-  const engineRef = useRef(null);
-  const boardObj = useRef(null);
-  const [game] = useState(new Chess());
-  const [moves, setMoves] = useState([]);
-  const [skill, setSkill] = useState(10);
+  const { user } = useAuth();
+  const [game, setGame] = useState(null);
+  const [gameHistory, setGameHistory] = useState([]);
+  const [isPlayerTurn, setIsPlayerTurn] = useState(true);
   const [playerColor, setPlayerColor] = useState('white');
+  const [aiLevel, setAiLevel] = useState(5);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameResult, setGameResult] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [hypotheticalMode, setHypotheticalMode] = useState(false);
+  const [evaluation, setEvaluation] = useState({ score: 0, mate: null });
+  const engineRef = useRef(null);
 
-  // Initialize Stockfish
   useEffect(() => {
-    loadStockfish().then((engine) => {
-      engineRef.current = engine;
-      engine.postMessage('uci');
-      engine.postMessage('setoption name Skill Level value ' + skill);
-      engine.postMessage('isready');
-      engine.onmessage = handleEngineMessage;
-      startNewGame();
-    });
+    const initializeGame = async () => {
+      if (typeof window !== 'undefined' && window.Chess) {
+        const newGame = new window.Chess();
+        setGame(newGame);
+      }
+    };
+
+    initializeGame();
   }, []);
 
-  // Update Skill Level on change
   useEffect(() => {
-    if (engineRef.current) {
-      engineRef.current.postMessage('setoption name Skill Level value ' + skill);
-    }
-  }, [skill]);
-
-  // Re-render board when orientation changes
-  useEffect(() => {
-    if (boardRef.current && engineRef.current) {
-      loadChessboard().then(() => {
-        boardObj.current = window.Chessboard(boardRef.current, {
-          position: game.fen(),
-          draggable: true,
-          orientation: playerColor,
-          onDrop: onDrop,
-        });
-      });
-    }
-  }, [playerColor]);
-
-  // Handle engine bestmove
-  const handleEngineMessage = (event) => {
-    const line = typeof event === 'string' ? event : event.data;
-    if (line.startsWith('bestmove')) {
-      const parts = line.split(' ');
-      const best = parts[1];
-      if (best && best !== '(none)') {
-        game.move({ from: best.slice(0, 2), to: best.slice(2, 4), promotion: 'q' });
-        updateBoard();
+    const initEngine = async () => {
+      try {
+        engineRef.current = await getStockfishEngine();
+        await setEngineSkill(aiLevel);
+      } catch (error) {
+        console.error('Failed to initialize engine:', error);
       }
+    };
+
+    initEngine();
+  }, [aiLevel]);
+
+  const startNewGame = async (color) => {
+    if (!game) return;
+    
+    game.reset();
+    setPlayerColor(color);
+    setIsPlayerTurn(color === 'white');
+    setGameStarted(true);
+    setGameOver(false);
+    setGameResult('');
+    setGameHistory([]);
+    setEvaluation({ score: 0, mate: null });
+
+    if (color === 'black') {
+      // AI plays first move as white
+      setTimeout(() => makeAiMove(), 1000);
     }
   };
 
-  // Called after user move
-  const onDrop = (source, target) => {
-    const move = game.move({ from: source, to: target, promotion: 'q' });
-    if (!move) return 'snapback';
-    updateBoard();
-    // Ask engine for its move
-    setTimeout(() => {
-      engineRef.current.postMessage('position fen ' + game.fen());
-      engineRef.current.postMessage('go depth 15');
-    }, 200);
-    return undefined;
+  const makeAiMove = async () => {
+    if (!game || !engineRef.current || gameOver) return;
+
+    setThinking(true);
+    try {
+      const fenBefore = game.fen();
+      const bestMove = await engineRef.current.getBestMove(2000);
+      
+      if (bestMove && bestMove !== '(none)') {
+        const move = game.move({
+          from: bestMove.substring(0, 2),
+          to: bestMove.substring(2, 4),
+          promotion: bestMove.length > 4 ? bestMove.substring(4) : undefined
+        });
+
+        if (move) {
+          // Motif detection
+          const motifs = detectMotifs(game, move, fenBefore);
+          const newHistory = [...gameHistory, {
+            move: move,
+            fen: game.fen(),
+            san: move.san,
+            evaluation: null,
+            motifs
+          }];
+          
+          setGameHistory(newHistory);
+          setIsPlayerTurn(true);
+          
+          checkGameEnd();
+          evaluatePosition();
+        }
+      }
+    } catch (error) {
+      console.error('AI move error:', error);
+    } finally {
+      setThinking(false);
+    }
   };
 
-  // Update both board and moves list
-  const updateBoard = () => {
-    boardObj.current.position(game.fen());
-    const hist = game.history();
-    setMoves(hist.map((m, i) => ({ san: m, ply: i + 1 })));  
+  const onMove = async (move) => {
+    if (!game || !isPlayerTurn || gameOver || hypotheticalMode) return;
+
+    const gameMove = game.move(move);
+    if (!gameMove) return false;
+
+    // Motif detection
+    const fenBefore = game.fen();
+    const motifs = detectMotifs(game, gameMove, fenBefore);
+
+    const newHistory = [...gameHistory, {
+      move: gameMove,
+      fen: game.fen(),
+      san: gameMove.san,
+      evaluation: null,
+      motifs
+    }];
+    
+    setGameHistory(newHistory);
+    setIsPlayerTurn(false);
+
+    if (checkGameEnd()) return true;
+    
+    evaluatePosition();
+    
+    // AI responds after a short delay
+    setTimeout(() => makeAiMove(), 500);
+    
+    return true;
   };
 
-  // Reset game state
-  const startNewGame = () => {
-    game.reset();
-    if (boardObj.current) boardObj.current.start();
-    updateBoard();
+  const evaluatePosition = async () => {
+    if (!engineRef.current) return;
+    
+    try {
+      const evaluation = await engineRef.current.getEvaluation(game.fen(), 12);
+      setEvaluation(evaluation);
+    } catch (error) {
+      console.error('Evaluation error:', error);
+    }
   };
 
-  return (
-    <div className="min-h-screen bg-black text-white">
-      <Navbar />
-      <div className="p-4 flex flex-col md:flex-row">
-        {/* Controls + Board */}
-        <div>
-          <div className="mb-4 flex flex-wrap space-x-4 items-end">
-            <div>
-              <label className="block mb-1">Skill Level</label>
-              <select
-                value={skill}
-                onChange={(e) => setSkill(parseInt(e.target.value))}
-                className="p-2 text-black rounded"
-              >
-                {Array.from({ length: 21 }).map((_, i) => (
-                  <option key={i} value={i}>{i}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block mb-1">Your Color</label>
-              <select
-                value={playerColor}
-                onChange={(e) => setPlayerColor(e.target.value)}
-                className="p-2 text-black rounded"
-              >
-                <option value="white">White</option>
-                <option value="black">Black</option>
-              </select>
-            </div>
-            <button
-              onClick={startNewGame}
-              className="px-4 py-2 bg-white text-black rounded hover:opacity-90"
-            >
-              New Game
-            </button>
-          </div>
-          <div id="board" ref={boardRef} style={{ width: '400px', maxWidth: '100%' }} />
-        </div>
-        {/* Moves List */}
-        <div className="mt-6 md:mt-0 md:ml-6 w-full md:w-1/3 overflow-y-auto" style={{ maxHeight: '600px' }}>
-          <h2 className="text-xl font-bold mb-2">Move List</h2>
-          <ol className="list-decimal list-inside space-y-1">
-            {moves.map(({ san, ply }) => (
-              <li key={ply}>
-                {ply % 2 === 1 ? `${Math.ceil(ply / 2)}.` : ''} {san}
-              </li>
-            ))}
-          </ol>
+  const checkGameEnd = () => {
+    if (game.game_over()) {
+      setGameOver(true);
+      setIsPlayerTurn(false);
+      
+      let result = '';
+      if (game.in_checkmate()) {
+        result = game.turn() === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
+      } else if (game.in_stalemate()) {
+        result = 'Draw by stalemate';
+      } else if (game.in_threefold_repetition()) {
+        result = 'Draw by repetition';
+      } else if (game.insufficient_material()) {
+        result = 'Draw by insufficient material';
+      } else {
+        result = 'Draw by 50-move rule';
+      }
+      
+      setGameResult(result);
+      saveGameData();
+      return true;
+    }
+    return false;
+  };
+
+  const saveGameData = async () => {
+    if (!user || !game) return;
+
+    try {
+      const gameData = {
+        pgn: game.pgn(),
+        result: gameResult,
+        playerColor,
+        aiLevel,
+        moves: gameHistory,
+        startTime: new Date(),
+        endTime: new Date()
+      };
+
+      await saveGame(user.uid, gameData);
+    } catch (error) {
+      console.error('Failed to save game:', error);
+    }
+  };
+
+  const formatEvaluation = (evaluation) => {
+    if (!evaluation) return '0.0';
+    
+    if (evaluation.mate !== null) {
+      return `#${evaluation.mate}`;
+    }
+    
+    const centipawns = evaluation.score || 0;
+    const pawns = (centipawns / 100).toFixed(1);
+    return pawns > 0 ? `+${pawns}` : pawns.toString();
+  };
+
+  if (!game) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="spinner mx-auto mb-4"></div>
+          <p>Loading chess engine...</p>
         </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <Head>
+        <title>Practice vs AI - Chess Trainer</title>
+      </Head>
+
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Left Column - Game Setup & Board */}
+          <div className="lg:w-2/3">
+            {!gameStarted ? (
+              <div className="card mb-6">
+                <div className="card-header">
+                  <h1 className="text-2xl font-bold">Practice vs AI</h1>
+                  <p className="text-gray-600 mt-1">Play against Stockfish with adjustable difficulty</p>
+                </div>
+                <div className="card-body">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Choose Your Color
+                      </label>
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => startNewGame('white')}
+                          className="w-full btn-primary"
+                        >
+                          Play as White
+                        </button>
+                        <button
+                          onClick={() => startNewGame('black')}
+                          className="w-full btn-secondary"
+                        >
+                          Play as Black
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        AI Difficulty: Level {aiLevel}
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={aiLevel}
+                        onChange={(e) => setAiLevel(parseInt(e.target.value))}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>Beginner</span>
+                        <span>Master</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h1 className="text-2xl font-bold">Practice Game</h1>
+                    <p className="text-gray-600">
+                      You are {playerColor} vs AI Level {aiLevel}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-mono">
+                      Eval: {formatEvaluation(evaluation)}
+                    </div>
+                    {thinking && (
+                      <div className="text-sm text-gray-600 flex items-center">
+                        <div className="spinner mr-2"></div>
+                        AI thinking...
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {gameOver && (
+                  <div className="bg-green-50 border border-green-200 p-4 rounded-md mb-4">
+                    <h3 className="font-bold text-green-800">Game Over</h3>
+                    <p className="text-green-700">{gameResult}</p>
+                    <button
+                      onClick={() => setGameStarted(false)}
+                      className="btn-primary mt-2"
+                    >
+                      Play Again
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {gameStarted && (
+              <>
+                <HypotheticalToggle 
+                  enabled={hypotheticalMode} 
+                  onToggle={setHypotheticalMode} 
+                />
+                
+                <ChessBoard
+                  game={game}
+                  onMove={onMove}
+                  playerColor={playerColor}
+                  disabled={!isPlayerTurn || gameOver}
+                  hypotheticalMode={hypotheticalMode}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Right Column - Notation & Analysis */}
+          {gameStarted && (
+            <div className="lg:w-1/3">
+              <NotationPanel
+                moves={gameHistory.map(m => ({ san: m.san, motifs: m.motifs }))}
+                currentGame={game}
+                evaluation={evaluation}
+                onMoveClick={(moveIndex) => {
+                  // Navigate to specific position
+                  console.log('Navigate to move:', moveIndex);
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

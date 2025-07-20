@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Chess from 'chess.js';
 import { loadStockfish } from '../lib/stockfish';
+import { detectMotifs } from '../lib/motifs';
 
 // Dynamically load Chessboard.js
 const loadChessboard = async () => {
@@ -74,10 +75,11 @@ export default function EndgameTrainer() {
       chess.reset(); chess.load(finalFen);
       chess.move(m);
       const fenAfter = chess.fen();
-
       // Evaluate fenAfter
       const evalCp = await evaluateFen(fenAfter);
-      results.push({ san: m.san, uci: m.from + m.to, evaluation: evalCp });
+      // Motif detection
+      const motifs = detectMotifs(chess, m, fenBefore);
+      results.push({ san: m.san, uci: m.from + m.to, evaluation: evalCp, motifs });
     }
     setAnalysis(results);
     setLoading(false);
@@ -131,11 +133,13 @@ export default function EndgameTrainer() {
             </div>
             <div className="w-full md:w-1/3 mt-4 md:mt-0 md:ml-6 overflow-y-auto" style={{ maxHeight: '80vh' }}>
               <h2 className="text-xl font-bold mb-2">Legal Moves & Evaluations</h2>
-              <ul className="space-y-2">
-                {analysis.map((a, idx) => (
-                  <li key={idx} className="p-2 bg-gray-800 rounded flex justify-between">
-                    <span>{a.san}</span>
-                    <span>{a.evaluation} cp</span>
+              <ul className="mt-4">
+                {analysis.map((a, i) => (
+                  <li key={i} className="mb-2">
+                    <span className="font-bold">{a.san}</span>: {a.evaluation} cp
+                    {a.motifs && a.motifs.length > 0 && (
+                      <span className="ml-2 text-yellow-300">Motifs: {a.motifs.join(', ')}</span>
+                    )}
                   </li>
                 ))}
               </ul>

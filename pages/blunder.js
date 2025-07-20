@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Chess from 'chess.js';
 import { loadStockfish } from '../lib/stockfish';
+import { detectMotifs } from '../lib/motifs';
 
 // Dynamically load Chessboard.js (client-side only)
 const loadChessboard = async () => {
@@ -43,19 +44,20 @@ export default function BlunderRecall() {
     chess.reset();
 
     const detected = [];
-    // Sequentially analyze each move
-    for (let mv of history) {
+    for (let i = 0; i < history.length; i++) {
+      const mv = history[i];
       const fenBefore = chess.fen();
       // Get best move and eval
       const { bestMove, bestEval } = await analyzePosition(fenBefore);
-      // Apply user move
       chess.move(mv);
       const fenAfter = chess.fen();
       // Get eval of user move
       const { evaluation: userEval } = await analyzePosition(fenAfter);
       const loss = Math.abs(bestEval - userEval);
       if (loss >= 100) {
-        detected.push({ fen: fenBefore, bestMove, loss });
+        // Motif detection
+        const motifs = detectMotifs(chess, mv, fenBefore);
+        detected.push({ fen: fenBefore, bestMove, loss, motifs });
       }
     }
     setBlunders(detected);
@@ -164,6 +166,9 @@ export default function BlunderRecall() {
               {userGuess ? (
                 <div className="mt-4 text-center">
                   <p className="mb-2">{feedback}</p>
+                  {blunders[currentIndex].motifs && blunders[currentIndex].motifs.length > 0 && (
+                    <p className="mb-2 text-yellow-300">Motifs: {blunders[currentIndex].motifs.join(', ')}</p>
+                  )}
                   <button
                     onClick={handleNextCard}
                     className="px-4 py-2 bg-white text-black rounded hover:opacity-90"

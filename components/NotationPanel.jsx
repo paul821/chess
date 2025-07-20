@@ -23,6 +23,9 @@ export default function NotationPanel({ moves = [], onSelect = null, title = 'Mo
               className="cursor-pointer hover:text-gray-300"
             >
               {m.san}
+              {m.motifs && m.motifs.length > 0 && (
+                <div className="text-xs text-yellow-300 mt-0.5">{m.motifs.join(', ')}</div>
+              )}
             </li>
           ))}
         </ol>

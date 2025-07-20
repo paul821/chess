@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Chess from 'chess.js';
+import { detectMotifs } from '../lib/motifs';
 
 // Dynamically load Chessboard.js (client-side only)
 const loadChessboard = async () => {
@@ -17,6 +18,7 @@ export default function Explorer() {
   const [openingMoves, setOpeningMoves] = useState([]); // API moves
   const [explanation, setExplanation] = useState('');
   const [classification, setClassification] = useState('');
+  const [motifs, setMotifs] = useState([]);
 
   // Initialize board
   useEffect(() => {
@@ -67,6 +69,10 @@ export default function Explorer() {
     setExplanation(
       `The move ${m.san} leads to about ${winRate}% win rate for White. This typically indicates a ${style.toLowerCase()} game plan.`
     );
+
+    // Motif detection
+    const motifs = detectMotifs(game, { san: m.san, from: m.uci.slice(0,2), to: m.uci.slice(2,4), piece: m.san[0].toLowerCase(), color: 'w' }, null);
+    setMotifs(motifs);
   };
 
   // Reset to starting position
@@ -127,12 +133,13 @@ export default function Explorer() {
               })}
             </ul>
           )}
-
-          {/* Explanation & Classification */}
           {explanation && (
-            <div className="mt-6 bg-gray-900 p-4 rounded">
-              <h3 className="text-lg font-bold mb-2">Style: {classification}</h3>
-              <p>{explanation}</p>
+            <div className="mt-4">
+              <div className="text-white mb-2">{explanation}</div>
+              <div className="text-gray-400 mb-2">Classification: {classification}</div>
+              {motifs && motifs.length > 0 && (
+                <div className="text-xs text-yellow-300">Motifs: {motifs.join(', ')}</div>
+              )}
             </div>
           )}
         </div>

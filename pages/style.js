@@ -5,6 +5,7 @@ import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import Chess from 'chess.js';
 import { loadStockfish } from '../lib/stockfish';
+import { detectMotifs } from '../lib/motifs';
 
 export default function StyleAnalyzer() {
   const { user } = useContext(AuthContext);
@@ -49,6 +50,7 @@ export default function StyleAnalyzer() {
       let totalMoves = 0;
       let tacticalCount = 0;
       let blunderList = new Map();
+      const motifCounts = new Map();
       const timeControlStats = {};
       const phaseStats = { opening: [], middlegame: [], endgame: [] };
 
@@ -72,6 +74,12 @@ export default function StyleAnalyzer() {
           const fenAfter = chess.fen();
           const cpAfter = await evalFen(fenAfter);
           const loss = Math.abs(cpBefore - cpAfter);
+
+          // Motif detection
+          const motifs = detectMotifs(chess, mv, fenBefore);
+          motifs.forEach(motif => {
+            motifCounts.set(motif, (motifCounts.get(motif) || 0) + 1);
+          });
 
           totalCentipawnLoss += loss;
           totalMoves++;
@@ -100,6 +108,11 @@ export default function StyleAnalyzer() {
         .slice(0, 5)
         .map(([san, count]) => `${san} (${count} times)`);
 
+      // Most frequent motifs
+      const motifArr = Array.from(motifCounts.entries());
+      motifArr.sort((a, b) => b[1] - a[1]);
+      const topMotifs = motifArr.slice(0, 5);
+
       // Time control distribution
       const timeDist = Object.entries(timeControlStats).map(([tc, cnt]) => `${tc}: ${cnt} games`);
 
@@ -115,7 +128,15 @@ export default function StyleAnalyzer() {
       if (tacticalPct > 20) suggestions.push('King\'s Gambit', 'Sicilian Defense');
       else suggestions.push('Ruy Lopez', 'Queen\'s Gambit Declined');
 
-      setReport({ avgLoss, tacticalPct, commonBlunders, timeDist, phasePerf, suggestions });
+      setReport({
+        avgLoss,
+        tacticalPct,
+        commonBlunders,
+        timeDist,
+        phasePerf,
+        suggestions,
+        topMotifs
+      });
       setLoading(false);
     };
 
@@ -177,6 +198,15 @@ export default function StyleAnalyzer() {
         <h2 className="text-2xl font-semibold">Suggested Openings</h2>
         <ul className="list-disc list-inside">
           {report.suggestions.map((o, i) => <li key={i}>{o}</li>)}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="text-2xl font-semibold">Most Frequent Motifs</h2>
+        <ul className="list-disc list-inside">
+          {report.topMotifs.map(([motif, count], i) => (
+            <li key={i}>{motif}: {count} times</li>
+          ))}
         </ul>
       </section>
     </div>

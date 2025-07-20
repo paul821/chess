@@ -2,6 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Chess from 'chess.js';
 import { loadStockfish } from '../lib/stockfish';
+import FileSaver from 'file-saver';
+import JSZip from 'jszip';
+import { useContext } from 'react';
+import { AuthContext } from './_app';
+import { db } from '../lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+import { detectMotifs } from '../lib/motifs';
 
 // Dynamically import Chessboard.js
 const loadChessboard = async () => {
@@ -9,6 +16,82 @@ const loadChessboard = async () => {
     await import('chessboardjs');
   }
 };
+
+// Enhanced GPT-style explanation generator
+function generateNuancedExplanation(move, bestMove, evaluation, loss, idx, history, chess) {
+  let explanation = '';
+  // Phase detection
+  let phase = 'middlegame';
+  if (idx < 10) phase = 'opening';
+  else if (idx > history.length - 10) phase = 'endgame';
+
+  // Opening
+  if (phase === 'opening') {
+    explanation += 'In the opening, it’s important to develop pieces and control the center. ';
+  } else if (phase === 'endgame') {
+    explanation += 'In the endgame, king activity and pawn promotion are crucial. ';
+  }
+
+  // Move quality
+  if (loss >= 300) {
+    explanation += `This move is a blunder (loss: ${loss} cp). `;
+    explanation += 'It significantly worsens your position. ';
+  } else if (loss >= 100) {
+    explanation += `This move is an inaccuracy (loss: ${loss} cp). `;
+    explanation += 'There was a better option available. ';
+  } else if (loss <= 30) {
+    explanation += `Excellent move! (loss: ${loss} cp). `;
+  } else {
+    explanation += `This move is reasonable. (loss: ${loss} cp). `;
+  }
+
+  // Tactical/strategic motifs
+  if (move.flags && move.flags.includes('c')) {
+    explanation += 'You captured a piece. ';
+  }
+  if (move.san.includes('+')) {
+    explanation += 'You gave check, putting pressure on the king. ';
+  }
+  if (move.san.includes('#')) {
+    explanation += 'Checkmate! Well done. ';
+  }
+  if (move.flags && move.flags.includes('p')) {
+    explanation += 'Pawn promotion! Advancing pawns in the endgame is key. ';
+  }
+  if (move.san.toLowerCase().includes('x')) {
+    explanation += 'This is a capture. ';
+  }
+
+  // King safety
+  const fen = chess.fen();
+  if (fen.includes('k') && fen.split('k').length - 1 === 1 && phase !== 'endgame') {
+    explanation += 'Be cautious: your king may be exposed. ';
+  }
+
+  // Center control
+  if (['e4','d4','e5','d5'].some(sq => move.to === sq)) {
+    explanation += 'This move helps control the center. ';
+  }
+
+  // Piece activity
+  if (['N','B','R','Q'].includes(move.piece?.toUpperCase())) {
+    explanation += `Activating your ${move.piece?.toUpperCase()} can increase pressure. `;
+  }
+
+  // Missed tactics (simple heuristic)
+  if (loss >= 200 && bestMove && bestMove !== move.san) {
+    explanation += `You missed a tactical opportunity: Stockfish suggests ${bestMove}. `;
+  }
+
+  // Conversational wrap-up
+  if (move.san === bestMove) {
+    explanation += 'This matches Stockfish’s top choice. ';
+  } else {
+    explanation += `Consider ${bestMove} next time for a stronger position. `;
+  }
+
+  return explanation.trim();
+}
 
 export default function Review() {
   const [pgnText, setPgnText] = useState('');
@@ -18,6 +101,7 @@ export default function Review() {
   const chessRef = useRef(new Chess());
   const boardRef = useRef(null);
   const boardObj = useRef(null);
+  const { user } = useContext(AuthContext);
 
   // Initialize Stockfish engine
   useEffect(() => {
@@ -77,16 +161,16 @@ export default function Review() {
       chess.move(move);
       const fenAfter = chess.fen();
 
-      // Update board to current state
-      boardObj.current.position(fenAfter);
-
-      // Generate basic explanation
-      const explanation = `You played ${move.san}. Stockfish suggests ${bestMove}, and evaluation before this move was ${evaluation} centipawns.`;
-
+      // Calculate centipawn loss
+      const loss = Math.abs(evaluation - (movesData.length > 0 ? movesData[movesData.length - 1].evaluation : 0));
+      // Generate nuanced explanation
+      const explanation = generateNuancedExplanation(move, bestMove, evaluation, loss, i, history, chess);
+      // Detect motifs
+      const motifs = detectMotifs(chess, move, fenBefore);
       // Save data
       setMovesData((prev) => [
         ...prev,
-        { san: move.san, fenBefore, fenAfter, bestMove, evaluation, explanation },
+        { san: move.san, fenBefore, fenAfter, bestMove, evaluation, explanation, motifs },
       ]);
     }
 
@@ -97,6 +181,40 @@ export default function Review() {
   const handleMoveClick = (idx) => {
     const m = movesData[idx];
     boardObj.current.position(m.fenAfter);
+  };
+
+  // Export annotated PGN
+  const handleExportPGN = () => {
+    if (!movesData.length) return;
+    let pgn = '';
+    movesData.forEach((m, idx) => {
+      pgn += `${idx % 2 === 0 ? (idx / 2 + 1) + '. ' : ''}${m.san} `;
+      pgn += `{ [%eval ${m.evaluation}] [%best ${m.bestMove}] ${m.explanation} } `;
+    });
+    const blob = new Blob([pgn], { type: 'text/plain;charset=utf-8' });
+    FileSaver.saveAs(blob, 'annotated_game.pgn');
+  };
+
+  // Export JSON summary
+  const handleExportJSON = () => {
+    if (!movesData.length) return;
+    const blob = new Blob([JSON.stringify(movesData, null, 2)], { type: 'application/json' });
+    FileSaver.saveAs(blob, 'game_summary.json');
+  };
+
+  // Export all games as ZIP (for logged-in users)
+  const handleExportZIP = async () => {
+    if (!user) return;
+    const zip = new JSZip();
+    const gamesCol = collection(db, 'users', user.uid, 'games');
+    const snapshot = await getDocs(gamesCol);
+    const games = snapshot.docs.map(doc => doc.data());
+    games.forEach((game, idx) => {
+      zip.file(`game_${idx + 1}.pgn`, game.pgn || '');
+      zip.file(`game_${idx + 1}.json`, JSON.stringify(game, null, 2));
+    });
+    const content = await zip.generateAsync({ type: 'blob' });
+    FileSaver.saveAs(content, 'all_games.zip');
   };
 
   return (
@@ -116,6 +234,31 @@ export default function Review() {
         >
           Analyze Game
         </button>
+        {/* Export Buttons */}
+        <div className="flex flex-wrap gap-4 mt-4">
+          <button
+            onClick={handleExportPGN}
+            className="px-4 py-2 bg-gray-200 text-black rounded hover:bg-gray-300"
+            disabled={!movesData.length}
+          >
+            Export PGN
+          </button>
+          <button
+            onClick={handleExportJSON}
+            className="px-4 py-2 bg-gray-200 text-black rounded hover:bg-gray-300"
+            disabled={!movesData.length}
+          >
+            Export JSON
+          </button>
+          {user && (
+            <button
+              onClick={handleExportZIP}
+              className="px-4 py-2 bg-gray-200 text-black rounded hover:bg-gray-300"
+            >
+              Export All (ZIP)
+            </button>
+          )}
+        </div>
         {loading && <p className="mt-4">Analyzing game, please wait...</p>}
 
         {!loading && movesData.length > 0 && (
@@ -138,6 +281,9 @@ export default function Review() {
                     <p>Best Move: <span className="font-medium">{m.bestMove}</span></p>
                     <p>Evaluation: <span className="font-medium">{m.evaluation} cp</span></p>
                     <p>{m.explanation}</p>
+                    {m.motifs && m.motifs.length > 0 && (
+                      <p className="mt-1 text-yellow-300">Motifs: {m.motifs.join(', ')}</p>
+                    )}
                   </li>
                 ))}
               </ol>
